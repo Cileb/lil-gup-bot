@@ -6,7 +6,7 @@ const fs = require("node:fs")
 const path = require("node:path")
 
 //pulling commands out of discord package, grabbing discord bot auth token
-const {Client, Collection, GatewayIntentBits, Events} = require("discord.js");
+const {Client, Collection, GatewayIntentBits, Events, ButtonBuilder, ButtonStyle, ActionRowBuilder} = require("discord.js");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 //bot object creation
@@ -18,6 +18,9 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
     ],
 });
+
+//announcement temp storage
+const pendingAnnouncements = new Map();
 
 //attaching a new collection to the client object (will host commands)
 client.commands = new Collection();
@@ -48,7 +51,7 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.InteractionCreate, async (interaction) => {
 
     //checking if slashCommand or not
-    if (!interaction.isChatInputCommand()) return;
+    if (interaction.isChatInputCommand()){
 
     //looks up command, based off user input, matches to command in collection
     const command = client.commands.get(interaction.commandName);
@@ -69,8 +72,68 @@ client.on(Events.InteractionCreate, async (interaction) => {
         else{
             await interaction.reply(errorReply)
         }
+    
     }
-})
+}   else if (interaction.isModalSubmit()){ /*modal input logic, gathering data from announce and posting message in channel*/
+    if(interaction.customId === "announcement"){
+        const message = interaction.fields.getTextInputValue("messageInput");
+        const channels = interaction.fields.getSelectedChannels("channelSelect", true)
+        const targetChannel = channels.first();
+        const roles = interaction.fields.getSelectedRoles("roleSelect", false);
+        const role = roles && roles.size > 0 ? roles.first() : null;
+
+        pendingAnnouncements.set(interaction.user.id, {
+            message,
+            channelId: targetChannel.id,
+            roleId: role ? role.id : null
+        })
+
+        const postNowButton = new ButtonBuilder()
+        .setCustomId("announce_post_now")
+        .setLabel("Post Now")
+        .setStyle(ButtonStyle.Primary);
+
+        const scheduleButton = new ButtonBuilder()
+        .setCustomId("announce_schedule")
+        .setLabel("Set Up Recurring Schedule")
+        .setStyle(ButtonStyle.Secondary);
+
+        const row = new ActionRowBuilder().addComponents(postNowButton, scheduleButton);
+
+        await interaction.reply({
+            content: `Ready to post in ${targetChannel}${role ? ` (pinging ${role})` : ""}:\n\n${message}`,
+            components: [row],
+            ephemeral: true
+        })
+
+    }
+}   else if (interaction.isButton()){
+    if(interaction.customId === "announce_post_now"){
+        const pending = pendingAnnouncements.get(interaction.user.id);
+        if(!pending){
+            await interaction.update({
+                content: "This announcement setup has expired. Please run /announce again.",
+                components: [],
+            });
+        return;
+        }
+
+        const channel = await interaction.guild.channels.fetch(pending.channelId);
+        const roleMention = pending.roleId ? `<@&${pending.roleId}>` : "";
+        const announcementText = `${roleMention}\n${pending.message}`;
+
+        await channel.send(announcementText);
+        pendingAnnouncements.delete(interaction.user.id);
+
+        await interaction.update({
+            content: `Announcement posted in ${channel}.`,
+            components: [],
+        })
+
+    }
+
+
+}})
 
 
 //check if token exists, login
