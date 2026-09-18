@@ -30,6 +30,7 @@ module.exports = {
 
         const messageLabel = new LabelBuilder()
         .setLabel("Announcement text")
+        .setDescription("Shown exactly as typed, supports multiple lines")
         .setTextInputComponent(messageInput);
         
         const channelSelect = new ChannelSelectMenuBuilder()
@@ -39,6 +40,7 @@ module.exports = {
 
         const channelLabel = new LabelBuilder()
         .setLabel("Channel to post in")
+        .setDescription("Where the announcement will appear")
         .setChannelSelectMenuComponent(channelSelect);
 
         const roleSelect = new RoleSelectMenuBuilder()
@@ -47,6 +49,7 @@ module.exports = {
 
         const roleLabel = new LabelBuilder()
         .setLabel("Role to ping (optional)")
+        .setDescription("Leave blank to post without pinging anyone")
         .setRoleSelectMenuComponent(roleSelect);
 
     modal.addLabelComponents(messageLabel, channelLabel, roleLabel);
