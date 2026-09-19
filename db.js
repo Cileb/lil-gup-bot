@@ -16,6 +16,13 @@ db.exec(`
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     
     )
-`)
+`);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS guild_settings(
+    guild_id TEXT PRIMARY KEY,
+    welcome_channel_id TEXT
+    )
+`);
 
 module.exports = db;

@@ -24,6 +24,7 @@ const {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
+  EmbedBuilder
 } = require("discord.js");
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -48,6 +49,13 @@ function parseTime(timeString){
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+const ROLE_OPTIONS = [
+  { slug: "wow_midnight", label: "WoW - Midnight", roleName: "WoW - Midnight" },
+  { slug: "wow_classic", label: "WoW - Classic", roleName: "WoW - Classic" },
+  { slug: "wow_forever", label: "WoW - Forever", roleName: "WoW - Forever" },
+];
+
+
 //registering the cron job
 function scheduleAnnouncementJob(row){
     const job = cron.schedule(
@@ -61,7 +69,7 @@ function scheduleAnnouncementJob(row){
             //send announcement
             try {
                 const channel = await client.channels.fetch(row.channel_id);
-                const roleMention = row.role_id ? `<@&${row.role_id}>\n` : "";
+                const roleMention = row.role_id ? `<@&${row.role_id}>` : "";
                 await channel.send(`${roleMention}\n${row.message}`);
             }
             catch (error){
@@ -167,7 +175,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const row = new ActionRowBuilder().addComponents(postNowButton, scheduleButton);
 
         await interaction.reply({
-            content: `Ready to post in ${targetChannel}${role ? ` (pinging ${role})` : ""}:\n\n${message}`,
+            content: `Ready to post in ${targetChannel}${role ? ` (pinging ${role})` : ""}:\n${message}`,
             components: [row],
             ephemeral: true
         })
@@ -337,9 +345,91 @@ client.on(Events.InteractionCreate, async (interaction) => {
         modal.addLabelComponents(daysLabel, timeLabel, timezoneLabel, weeksLabel );
 
         await interaction.showModal(modal);
-    }       
+    } else if (interaction.isButton() && interaction.customId.startsWith("toggle_role:")) { /*check to see if welcomed user is clicking role button*/ 
+        const[, slug, targetUserId] = interaction.customId.split(":");
+
+        if(interaction.user.id !== targetUserId){
+            await interaction.reply({
+                content: `This role picker isn't for you.`,
+                ephemeral: true,
+            })
+            return;
+        }
+        const roleConfig = ROLE_OPTIONS.find((r) => r.slug === slug);
+
+        if(!roleConfig){
+            await interaction.reply({
+                content: `That role option isn't recognized.`,
+                ephemeral: true
+            })
+        }
+
+        const role = interaction.guild.roles.cache.find((r) => r.name === roleConfig.roleName);
+        if(!role){
+            await interaction.reply({
+                content: `The "${roleConfig.roleName}" role doesn't exist on this server yet.`,
+                ephemeral: true,
+            })
+        }
+
+        const member = interaction.member;
+
+        if(member.roles.cache.has(role.id)){
+            await member.roles.remove(role);
+        } else {
+            await member.roles.add(role);
+        }
+
+        const updatedButtons = ROLE_OPTIONS.map((opt) => {
+            const optRole = interaction.guild.roles.cache.find((r) => r.name === opt.roleName);
+            const isActive = optRole && member.roles.cache.has(optRole.id);
+
+            return new ButtonBuilder()
+                .setCustomId(`toggle_role:${opt.slug}:${targetUserId}`)
+                .setLabel(opt.label)
+                .setStyle(isActive ? ButtonStyle.Success : ButtonStyle.Secondary);
+        });
+
+        const updatedRow = new ActionRowBuilder().addComponents(updatedButtons);
+
+        await interaction.update({components: [updatedRow]});
+    }   
 }
 })
+
+//fires when someone new joins the server, grabs member information
+client.on(Events.GuildMemberAdd, async(member) => {
+    const settings = db
+        .prepare("SELECT welcome_channel_id FROM guild_settings WHERE guild_id = ?")
+        .get(member.guild.id);
+
+    //double checking if server information exists and the set-welcome-channel still exists
+    if (!settings || !settings.welcome_channel_id) return;
+
+    const channel = await member.guild.channels.fetch(settings.welcome_channel_id).catch(() => null);
+    if(!channel) return;
+
+    const roleButtons = ROLE_OPTIONS.map((role) =>
+        new ButtonBuilder()
+            .setCustomId(`toggle_role:${role.slug}:${member.id}`)
+            .setLabel(role.label)
+            .setStyle(ButtonStyle.Secondary)
+    );
+
+    const row = new ActionRowBuilder().addComponents(roleButtons);
+
+    const welcomeEmbed = new EmbedBuilder()
+        .setColor(0xc9a227)
+        .setTitle("Welcome to the server!")
+        .setDescription(`Glad to have you here, ${member}.\nChoose your roles below.`)
+        .setThumbnail(member.user.displayAvatarURL())
+        .setFooter({text: "You can click these anytime to update your roles."});
+    
+    await channel.send({
+        embeds: [welcomeEmbed],
+        components: [row],
+    })
+});
 
 //check if token exists, login
 if(!TOKEN){
