@@ -9,6 +9,8 @@ const db = require("./db")
 const fs = require("node:fs")
 const path = require("node:path")
 
+
+
 //pulling commands out of discord package, grabbing discord bot auth token
 const {
   Client,
@@ -24,7 +26,8 @@ const {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
-  EmbedBuilder
+  EmbedBuilder,
+  Partials,
 } = require("discord.js");
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -54,6 +57,8 @@ const ROLE_OPTIONS = [
   { slug: "wow_classic", label: "WoW - Classic", roleName: "WoW - Classic" },
   { slug: "wow_forever", label: "WoW - Forever", roleName: "WoW - Forever" },
 ];
+
+const REACTION_ROLE_CATEGORIES = require("./reactionRoles");
 
 
 //registering the cron job
@@ -90,7 +95,9 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions,
     ],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 //announcement temp storage

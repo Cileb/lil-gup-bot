@@ -25,4 +25,13 @@ db.exec(`
     )
 `);
 
+db.exec(`
+    CREATE TABLE IF NOT EXISTS reaction_role_messages(
+        message_id TEXT PRIMARY KEY,
+        guild_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        category_slug TEXT NOT NULL
+    )
+`);
+
 module.exports = db;
