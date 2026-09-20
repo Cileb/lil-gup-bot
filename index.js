@@ -29,6 +29,9 @@ const {
   EmbedBuilder,
   Partials,
 } = require("discord.js");
+
+
+const { buildScheduleEmbed, buildScheduleComponents } = require("./commands/schedule-list");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 
@@ -50,7 +53,7 @@ function parseTime(timeString){
     return {hour, minute};
 }
 
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_NAMES = require("./dayNames");
 
 const ROLE_OPTIONS = [
   { slug: "wow_midnight", label: "WoW - Midnight", roleName: "WoW - Midnight" },
@@ -60,6 +63,8 @@ const ROLE_OPTIONS = [
 
 const REACTION_ROLE_CATEGORIES = require("./reactionRoles.js");
 
+const scheduledJobs = new Map();
+
 //registering the cron job
 function scheduleAnnouncementJob(row){
     const job = cron.schedule(
@@ -68,6 +73,7 @@ function scheduleAnnouncementJob(row){
             if(new Date() > new Date(row.end_date)){ /* are we past the end date of the scheduled announcement?, stop job, delete announcement from DB */
                 job.stop();
                 db.prepare("DELETE FROM scheduled_announcements WHERE id = ?").run(row.id);
+                scheduledJobs.delete(row.id)
                 return;
             }
             //send announcement
@@ -83,6 +89,7 @@ function scheduleAnnouncementJob(row){
      {timezone: row.timezone}
     );
 
+    scheduledJobs.set(row.id, job)
     return job;
 }
 
@@ -254,6 +261,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
         }
 
+
+
         const days = interaction.fields.getStringSelectValues("daysSelect");
         const timeString = interaction.fields.getTextInputValue("timeInput");
         const weeksString = interaction.fields.getTextInputValue("weeksInput");
@@ -299,15 +308,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
           endDate.toISOString()
         );
 
-        //runnning the announcement job
+        //runnning the announcement job, delete from pending
         const row = db.prepare("SELECT * FROM scheduled_announcements where id = ?").get(result.lastInsertRowid);
         scheduleAnnouncementJob(row);
+        pendingAnnouncements.delete(interaction.user.id);
 
         const dayNames = days.map((day) => DAY_NAMES[parseInt(day, 10)]).join(", ");
 
-        await interaction.reply({
+        const disabledPostNow = new ButtonBuilder()
+            .setCustomId("announce_post_now")
+            .setLabel("Post Now")
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(true);
+
+        const disabledSchedule = new ButtonBuilder()
+            .setCustomId("announce_schedule")
+            .setLabel("Set Up Recurring Schedule")
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true)
+
+        const disabledRow = new ActionRowBuilder().addComponents(disabledPostNow, disabledSchedule)
+
+        await interaction.update({
             content: `Recurring announcement scheduled!\nIt'll post at ${timeString} (${timezone}) on the day(s): ${dayNames} for the next ${weeks} week(s).`,
-            ephemeral: true,
+            components: [disabledRow],
         })
 
     }
@@ -457,7 +481,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const updatedRow = new ActionRowBuilder().addComponents(updatedButtons);
 
         await interaction.update({components: [updatedRow]});
-    }   
+    } else if (interaction.customId.startsWith("schedule_cancel:")) {
+    const [, scheduleId] = interaction.customId.split(":");
+    const id = parseInt(scheduleId, 10);
+
+    const job = scheduledJobs.get(id);
+    if (job) {
+        job.stop();
+        scheduledJobs.delete(id);
+    }
+
+    db.prepare("DELETE FROM scheduled_announcements WHERE id = ? AND guild_id = ?").run(id, interaction.guild.id);
+
+    const rows = db.prepare("SELECT * FROM scheduled_announcements WHERE guild_id = ?").all(interaction.guild.id);
+
+    if (rows.length === 0) {
+        await interaction.update({
+            content: "There are no scheduled announcements for this server.",
+            embeds: [],
+            components: [],
+        });
+        return;
+    }
+
+    await interaction.update({
+        embeds: [buildScheduleEmbed(rows)],
+        components: buildScheduleComponents(rows),
+    });
+} else if (interaction.customId.startsWith("schedule_edit:")) {
+    await interaction.reply({
+        content: "Editing scheduled announcements is coming soon!",
+        ephemeral: true,
+    });
+}   
+} else if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === "select_schedule") {
+        const rows = db.prepare("SELECT * FROM scheduled_announcements WHERE guild_id = ?").all(interaction.guild.id);
+        const selectedId = interaction.values[0];
+
+        await interaction.update({
+            embeds: [buildScheduleEmbed(rows)],
+            components: buildScheduleComponents(rows, selectedId),
+        });
+    }
 }
 })
 

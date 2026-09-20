@@ -1,7 +1,7 @@
 const REACTION_ROLE_CATEGORIES = [
   {
     slug: "game_version",
-    title: "Game Version",
+    title: "GAME VERSION",
     description: "React to select which version(s) of WoW you play.",
     options: [
       { emojiName: "wowretail", roleName: "WoW - Retail" },
@@ -10,7 +10,7 @@ const REACTION_ROLE_CATEGORIES = [
   },
   {
     slug: "role",
-    title: "Role",
+    title: "ROLE",
     description: "React to select your role(s).",
     options: [
       { emojiName: "tank", roleName: "Tank" },
@@ -20,7 +20,7 @@ const REACTION_ROLE_CATEGORIES = [
   },
   {
     slug: "professions",
-    title: "Professions",
+    title: "PROFESSIONS",
     description: "React to select your profession(s).",
     options: [
       { emojiName: "alchemy", roleName: "Alchemy" },
