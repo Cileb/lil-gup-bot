@@ -58,8 +58,7 @@ const ROLE_OPTIONS = [
   { slug: "wow_forever", label: "WoW - Forever", roleName: "WoW - Forever" },
 ];
 
-const REACTION_ROLE_CATEGORIES = require("./reactionRoles");
-
+const REACTION_ROLE_CATEGORIES = require("./reactionRoles.js");
 
 //registering the cron job
 function scheduleAnnouncementJob(row){
@@ -87,6 +86,64 @@ function scheduleAnnouncementJob(row){
     return job;
 }
 
+async function handleReactionRoleChange(reaction, user, action){
+    if (user.bot) return; /*prevent assigning roles to bot*/
+
+
+    
+    if (reaction.partial) {
+        try {
+            await reaction.fetch();
+        } catch (error) {
+            console.error("Failed to fetch partial reaction:", error);
+            return;
+        }
+    }
+
+    if(reaction.message.partial) {
+        try {
+            await reaction.message.fetch();
+        } catch (error) {
+            console.error("Failed to fetch partial message:", error)
+            return;
+        }
+    }
+
+    //checking to see if emoji is apart of one of the role-selection posts, rather than a random react elsewhere
+    const row = db
+        .prepare("SELECT category_slug from reaction_role_messages WHERE message_id = ?")
+        .get(reaction.message.id)
+
+    if(!row) return;
+
+    //finding what category the message belongs to, finding which emoji was selected
+    const category = REACTION_ROLE_CATEGORIES.find((c) => c.slug === row.category_slug);
+    if(!category) return;
+
+    const optionConfig = category.options.find((opt) => opt.emojiName === reaction.emoji.name);
+    if(!optionConfig) return;
+
+    const guild = reaction.message.guild;
+    const role = guild.roles.cache.find((r) => r.name === optionConfig.roleName);
+    if(!role) {
+        console.warn(`Role "${optionConfig.roleName}" not found in this server.`);
+        return;
+    }
+
+    const member = await guild.members.fetch(user.id).catch(() => null);
+    if(!member) return;
+
+    //seeing if the emoji was reacted or un-reacted
+    try {
+        if (action === "add"){
+            await member.roles.add(role);
+        } else {
+            await member.roles.remove(role);
+        }
+    } catch (error) {
+        console.error(`Failed to ${action} role "${role.name}" for ${user.tag}:`, error)
+    }
+}
 
 //bot object creation
 const client = new Client({
@@ -437,6 +494,14 @@ client.on(Events.GuildMemberAdd, async(member) => {
         components: [row],
     })
 });
+
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+    await handleReactionRoleChange(reaction, user, "add");
+})
+
+client.on(Events.MessageReactionRemove, async (reaction, user) => {
+    await handleReactionRoleChange(reaction, user, "remove");
+})
 
 //check if token exists, login
 if(!TOKEN){
