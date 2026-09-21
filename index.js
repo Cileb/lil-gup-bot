@@ -9,7 +9,7 @@ const db = require("./db")
 const fs = require("node:fs")
 const path = require("node:path")
 
-
+console.log("test deploy");
 
 //pulling commands out of discord package, grabbing discord bot auth token
 const {
