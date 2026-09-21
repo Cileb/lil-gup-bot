@@ -663,6 +663,25 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
     await handleReactionRoleChange(reaction, user, "remove");
 })
 
+client.on(Events.MessageCreate, async (message) => {
+    if (message.author.bot) return;
+
+    const mentionsByName = message.content.toLowerCase().includes("lil gup");
+    const mentionsByPing = message.mentions.has(client.user);
+
+    if (!mentionsByName && !mentionsByPing) return;
+
+    const lilGupEmoji = message.guild.emojis.cache.find((e) => e.name === "lilgup");
+    if (!lilGupEmoji) {
+        console.warn(`Custom emoji ":lilgup:" not found in this server.`);
+        return;
+    }
+
+    await message.react(lilGupEmoji).catch((error) => {
+        console.error("Failed to react to message:", error);
+    });
+});
+
 //check if token exists, login
 if(!TOKEN){
     throw new Error("DISCORD_TOKEN not set. Copy .env.example to .env and add your bot token.")
