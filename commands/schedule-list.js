@@ -28,10 +28,20 @@ function weeksRemaining(endDateString) {
     return weeks > 0 ? weeks : 0;
 }
 
+function formatExpirationDate(endDateString, timezone) {
+    const endDate = new Date(endDateString);
+    return endDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: timezone,
+    });
+}
+
 function buildScheduleEmbed(rows) {
     const lines = rows.map((row) => {
         const preview = row.message.length > 80 ? `${row.message.slice(0, 80)}...` : row.message;
-        return `**#${row.id}** — <#${row.channel_id}> — ${formatCronExpression(row.cron_expression)} (${row.timezone}) — ${weeksRemaining(row.end_date)} week(s) left\n${preview}`;
+        return `**#${row.id}** — <#${row.channel_id}> — ${formatCronExpression(row.cron_expression)} (${row.timezone})\nExpires ${formatExpirationDate(row.end_date, row.timezone)}\n${preview}`;
     });
 
     return new EmbedBuilder()
@@ -100,4 +110,5 @@ module.exports = {
 
     buildScheduleEmbed,
     buildScheduleComponents,
+    weeksRemaining,
 };

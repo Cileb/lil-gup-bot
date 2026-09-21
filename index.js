@@ -31,7 +31,7 @@ const {
 } = require("discord.js");
 
 
-const { buildScheduleEmbed, buildScheduleComponents } = require("./commands/schedule-list");
+const { buildScheduleEmbed, buildScheduleComponents, weeksRemaining } = require("./commands/schedule-list");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 
@@ -334,7 +334,70 @@ client.on(Events.InteractionCreate, async (interaction) => {
             components: [disabledRow],
         })
 
+    } else if (interaction.customId.startsWith("editSchedule:")) {
+    const [, scheduleId] = interaction.customId.split(":");
+    const id = parseInt(scheduleId, 10);
+
+    const existingRow = db.prepare("SELECT * FROM scheduled_announcements WHERE id = ? AND guild_id = ?").get(id, interaction.guild.id);
+
+    if (!existingRow) {
+        await interaction.reply({
+            content: "That schedule no longer exists.",
+            ephemeral: true,
+        });
+        return;
     }
+
+    const days = interaction.fields.getStringSelectValues("daysSelect");
+    const timeString = interaction.fields.getTextInputValue("timeInput");
+    const weeksString = interaction.fields.getTextInputValue("weeksInput");
+    const timezone = interaction.fields.getStringSelectValues("timezoneSelect")[0];
+    const message = interaction.fields.getTextInputValue("messageInput");
+
+    const parsedTime = parseTime(timeString);
+    let weeks = parseInt(weeksString, 10);
+    weeks -= 1;
+
+    if (!parsedTime) {
+        await interaction.reply({
+            content: `"${timeString}" doesn't look like a valid time. Try something like 1:00pm or 2:00am.`,
+            ephemeral: true,
+        });
+        return;
+    }
+
+    if (!Number.isInteger(weeks) || weeks < 1) {
+        await interaction.reply({
+            content: `"${weeksString}" isn't a valid number of weeks. Enter a whole number, like 4.`,
+            ephemeral: true,
+        });
+        return;
+    }
+
+    const cronExpression = `${parsedTime.minute} ${parsedTime.hour} * * ${days.join(",")}`;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + weeks * 7);
+
+    const oldJob = scheduledJobs.get(id);
+    if (oldJob) {
+        oldJob.stop();
+        scheduledJobs.delete(id);
+    }
+
+    db.prepare(
+        `UPDATE scheduled_announcements SET message = ?, cron_expression = ?, timezone = ?, end_date = ? WHERE id = ?`
+    ).run(message, cronExpression, timezone, endDate.toISOString(), id);
+
+    const updatedRow = db.prepare("SELECT * FROM scheduled_announcements WHERE id = ?").get(id);
+    scheduleAnnouncementJob(updatedRow);
+
+    const rows = db.prepare("SELECT * FROM scheduled_announcements WHERE guild_id = ?").all(interaction.guild.id);
+
+    await interaction.update({
+        embeds: [buildScheduleEmbed(rows)],
+        components: buildScheduleComponents(rows),
+    });
+}
 }   else if (interaction.isButton()){
     if(interaction.customId === "announce_post_now"){
         const pending = pendingAnnouncements.get(interaction.user.id);
@@ -509,10 +572,104 @@ client.on(Events.InteractionCreate, async (interaction) => {
         components: buildScheduleComponents(rows),
     });
 } else if (interaction.customId.startsWith("schedule_edit:")) {
-    await interaction.reply({
-        content: "Editing scheduled announcements is coming soon!",
-        ephemeral: true,
-    });
+    const [, scheduleId] = interaction.customId.split(":");
+    const id = parseInt(scheduleId, 10);
+
+    const row = db
+        .prepare("SELECT * FROM scheduled_announcements WHERE id = ? AND guild_id = ?").get(id, interaction.guild.id);
+
+    if(!row) {
+        await interaction.reply({
+            content: "That schedule no longer exists.",
+            ephemeral: true,
+        });
+        return;
+    }
+
+    const [minute, hour, , , daysOfWeek] = row.cron_expression.split(" ");
+    const selectedDays = daysOfWeek.split(",");
+
+    const hourNum = parseInt(hour, 10);
+    const period = hourNum >= 12 ? "pm" : "am";
+    const displayHour = hourNum % 12 === 0 ? 12 : hourNum % 12;
+    const displayMinute = minute.padStart(2, "0");
+    const currentTimeString = `${displayHour}:${displayMinute}${period}`;
+
+    const modal = new ModalBuilder()
+        .setCustomId(`editSchedule:${id}`)
+        .setTitle("Edit Recurring Schedule");
+
+    const daysSelect = new StringSelectMenuBuilder()
+        .setCustomId("daysSelect")
+        .setMinValues(1)
+        .setMaxValues(7)
+        .setRequired(true)
+        .addOptions(
+            new StringSelectMenuOptionBuilder().setLabel("Sunday").setValue("0").setDefault(selectedDays.includes("0")),
+            new StringSelectMenuOptionBuilder().setLabel("Monday").setValue("1").setDefault(selectedDays.includes("1")),
+            new StringSelectMenuOptionBuilder().setLabel("Tuesday").setValue("2").setDefault(selectedDays.includes("2")),
+            new StringSelectMenuOptionBuilder().setLabel("Wednesday").setValue("3").setDefault(selectedDays.includes("3")),
+            new StringSelectMenuOptionBuilder().setLabel("Thursday").setValue("4").setDefault(selectedDays.includes("4")),
+            new StringSelectMenuOptionBuilder().setLabel("Friday").setValue("5").setDefault(selectedDays.includes("5")),
+            new StringSelectMenuOptionBuilder().setLabel("Saturday").setValue("6").setDefault(selectedDays.includes("6"))
+        );
+
+    const daysLabel = new LabelBuilder()
+        .setLabel("Repeat On")
+        .setStringSelectMenuComponent(daysSelect);
+
+    const timeInput = new TextInputBuilder()
+        .setCustomId("timeInput")
+        .setStyle(TextInputStyle.Short)
+        .setValue(currentTimeString)
+        .setRequired(true);
+
+    const timeLabel = new LabelBuilder()
+        .setLabel("Time")
+        .setDescription("24-hour or 12-hour with am/pm, e.g. 15:00 or 3:00pm")
+        .setTextInputComponent(timeInput);
+
+    const weeksInput = new TextInputBuilder()
+        .setCustomId("weeksInput")
+        .setStyle(TextInputStyle.Short)
+        .setValue(String(weeksRemaining(row.end_date)))
+        .setRequired(true);
+
+    const weeksLabel = new LabelBuilder()
+        .setLabel("Repeat for how many weeks?")
+        .setDescription("The schedule stops automatically after this many weeks")
+        .setTextInputComponent(weeksInput);
+
+    const timezoneSelect = new StringSelectMenuBuilder()
+        .setCustomId("timezoneSelect")
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setRequired(true)
+        .addOptions(
+            new StringSelectMenuOptionBuilder().setLabel("Eastern (ET)").setValue("America/New_York").setDefault(row.timezone === "America/New_York"),
+            new StringSelectMenuOptionBuilder().setLabel("Central (CT)").setValue("America/Chicago").setDefault(row.timezone === "America/Chicago"),
+            new StringSelectMenuOptionBuilder().setLabel("Mountain (MT)").setValue("America/Denver").setDefault(row.timezone === "America/Denver"),
+            new StringSelectMenuOptionBuilder().setLabel("Pacific (PT)").setValue("America/Los_Angeles").setDefault(row.timezone === "America/Los_Angeles"),
+            new StringSelectMenuOptionBuilder().setLabel("UTC").setValue("UTC").setDefault(row.timezone === "UTC")
+        );
+
+    const timezoneLabel = new LabelBuilder()
+        .setLabel("Timezone")
+        .setStringSelectMenuComponent(timezoneSelect);
+
+    const messageInput = new TextInputBuilder()
+    .setCustomId("messageInput")
+    .setStyle(TextInputStyle.Paragraph)
+    .setValue(row.message)
+    .setRequired(true);
+
+const messageLabel = new LabelBuilder()
+    .setLabel("Announcement Message")
+    .setTextInputComponent(messageInput);
+
+    modal.addLabelComponents(daysLabel, timeLabel, timezoneLabel, weeksLabel, messageLabel);
+
+    await interaction.showModal(modal); 
 }   
 } else if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "select_schedule") {
