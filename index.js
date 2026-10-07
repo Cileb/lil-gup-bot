@@ -32,6 +32,7 @@ const {
 
 
 const { buildScheduleEmbed, buildScheduleComponents, weeksRemaining } = require("./commands/schedule-list");
+const { startCountdownTicker } = require("./countdown");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 
@@ -183,6 +184,7 @@ for (const file of commandFiles) {
 //connecting to server
 client.once(Events.ClientReady, (readyClient) => {
     console.log(`Logged in as ${readyClient.user.tag} (ID: ${readyClient.user.id})`)
+    startCountdownTicker(readyClient);
 });
 
 //executing a command, anytime an interaction is triggered (slash command, button click, dropdown selection, etc.)

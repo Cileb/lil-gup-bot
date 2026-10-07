@@ -34,4 +34,12 @@ db.exec(`
     )
 `);
 
+db.exec(`
+    CREATE TABLE IF NOT EXISTS countdown_messages(
+        message_id TEXT PRIMARY KEY,
+        guild_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL
+    )
+`);
+
 module.exports = db;
